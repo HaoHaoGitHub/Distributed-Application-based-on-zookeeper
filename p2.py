@@ -1,6 +1,8 @@
-import socket, thread, time, pickle, copy
-from collections import deque
-
+import time
+import sys
+import socket
+import os
+import threading
 
 # global variables
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -40,8 +42,22 @@ def check_leader_exists(ID, p):
 		ns.close()
 	except:
 		print('Could not connect to the process')
+#--------------------------------------------------------------
+def check_leader():
+	while True:
+		if leader != 0 and is_leader == 0 and holdingElection == False:
+			ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			try:
+				ns.connect((host, leader))
+				ns.send('try')
+				msg = recv(2048)
+				ananlyze_msgs(None, None, msg = msg)
+				ns.close()
+			except socket.error as e:
+				print('Cannot find the leader, start new election!')
+				new_election()
 
-
+#--------------------------------------------------------------
 # To initiate election
 def new_election():
 	# global MY_ID
@@ -105,8 +121,12 @@ def ananlyze_msgs(conn, addr, msg):
 	# global holdingElection
 	# global is_leader
 	# global leader
-
-	if msg == 'ELECTION': # On receiving ELECTION from process q with lower ID
+	if msg == 'try':
+		if is_leader == 1: 
+			conn.send('alive')
+	elif msg == 'alive':
+		print('leader is here!')
+	elif msg == 'ELECTION': # On receiving ELECTION from process q with lower ID
 		conn.send('OK')
 		if (holdingElection == False):
 			new_election()
@@ -150,7 +170,12 @@ if is_leader == 0:
 
 s.listen(5)
 
-if leader == 1:
+thread_check_leader = threading.Thread(target=check_leader, args=())
+thread_check_leader.daemon = True
+thread_check_leader.start()
+
+
+if is_leader == 0:
 	print("The leader is: {}".format(leader))
 while True:
 	conn, addr = s.accept()
