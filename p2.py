@@ -2,30 +2,39 @@ import time, sys, socket, os, threading
 from random import randint
 from datetime import datetime
 
-DIR = '/tmp/bully/'       # a tmp directory hold all port numbers (not sure whether we 
-                          # can do like this way in EC2 environment)
-host = ''
-port = int(sys.argv[1])   # port number from command argument
+# global variables
+host = ''                 # varibale that holds the IP address
 is_leader = 0             # variable indicate whether the current process is the leader
 leader = 0                # variable keep track of the leader process
 holdingElection = False   # variable indicate whether is holding election
+
+MY_ID = ''                # MY NODE ID 
+MY_PORT = ''              # MY PORT NUMBER 
+id_port = {}              # hashtable that holds {id, port number}
+# end of global variables
+
+
 
 #--------------------------------------------------------------
 # function used for checking whether there is existing leader 
 # in all processes, if the current process is larger than the exiting
 # leader, initiate a new election
+# parameter: pair {id, port number}
 def check_leader(p):
     global leader
+    tmp_id = p
+    tmp_port = id_port[p]
+
     ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     ns.settimeout(1)
     try:
-        ns.connect((host, int(p)))
-        ns.send('Are you the leader? {}'.format(port))
+        ns.connect((host, tmp_port))
+        ns.send('Are you the leader? {}'.format(MY_ID))
         msg = ns.recv(2048)
         if msg == 'YES':
-            leader = int(p)
+            leader = tmp_id
         elif msg == 'You are bigger than me':
-            leader = port
+            leader = MY_ID
         ns.close()
     except:
         print('Could not connect to the process')
@@ -39,9 +48,9 @@ def check_leader_alive():
         time.sleep(randint(5,15))
         if leader != 0 and is_leader == 0 and holdingElection == False:
             ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ns.settimeout(1)
+            ns.settimeout(2)
             try:
-                ns.connect((host, leader))
+                ns.connect((host, id_port[leader]))
                 ns.send('try')
                 print('try')
                 print(datetime.now())
@@ -56,21 +65,22 @@ def check_leader_alive():
 def new_election():
     global port
     global holdingElection
-    global DIR
     global is_leader
+    global id_port
 
     holdingElection = True;
-    plist = os.listdir(DIR)
-    candidates=[]
-    for p in plist:
-        if int(p) > port:
-            candidates.append(int(p))
+
+    candidates = []
+    for i in id_port:
+        if i > MY_ID:
+            candidates.append(i)
+
     NO_RESPONSE = True
     
     for c in candidates:
         ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            ns.connect((host, c))
+            ns.connect((host, id_port[c]))
             ns.send('ELECTION')
             msg = ns.recv(2048)
             if msg == 'OK':
@@ -82,7 +92,7 @@ def new_election():
             
     if NO_RESPONSE == True:
         is_leader = 1
-        leader = port
+        leader = MY_ID
         holdingElection = False
         # if no response received, send COORDINATOR to all processes with lower IDs
         send_coordinator()  
@@ -92,16 +102,14 @@ def new_election():
 def send_coordinator():
     global port
     global holdingElection
-    global DIR
     print('I am the leader')
-    plist = os.listdir(DIR)
 
-    for p in plist:
-        if int(p) < port:
+    for i in id_port:
+        if i < MY_ID:
             ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                ns.connect((host, int(p)))
-                ns.send('COORDINATOR {}'.format(port))
+                ns.connect((host, id_port[i]))
+                ns.send('COORDINATOR {}'.format(MY_ID))
                 ns.close()
             except socket.error as e:
                 print('Failed to send COORDINATOR')
@@ -121,21 +129,20 @@ def analyze_msg(conn, addr, msg):
     if msg == 'try':
         if is_leader == 1:
             print('alive')
-            conn.send('alive'.encode())
+            conn.send('alive')
     elif msg == 'alive':
         print('leader is alive')
     elif 'Are you the leader?' in msg:
-        # print(msg)
         msplit = msg.split()
         asker = msplit[1]
         if is_leader == 1:
-            if asker > port and holdingElection == False:
+            if asker > MY_ID and holdingElection == False:
                 is_leader = 0;
                 leader = asker;
                 new_election();
-                conn.send('You are bigger than me'.encode())
+                conn.send('You are bigger than me')
             else:
-                conn.send('Yes'.encode())
+                conn.send('Yes')
         else:
             conn.send('NO'.encode())
     elif msg == 'ELECTION':
@@ -147,13 +154,14 @@ def analyze_msg(conn, addr, msg):
         msplit = msg.split()
         is_leader = 0
         leader = int(msplit[1])
-        print 'The leader is', leader
-        if port > leader and holdingElection == False:
+        print 'The leader is ', leader
+        if MY_ID > leader and holdingElection == False:
             new_election()
         else:
             holdingElection = False
     else:
         pass
+
 
 #--------------------------------------------------------------
 def main():
@@ -161,48 +169,48 @@ def main():
     global DIR
     global port
     global leader
+    global MY_NODE_NAME
+    global MY_ID
+    global id_port
+
     try:
+        MY_ID = int(raw_input("What is my node name?\n"))
+        f = open("ips.txt")
+
+        for ips in f:
+            ips = ips.split()
+            id_port[int(ips[0])] = int(ips[2])
+            if MY_ID == int(ips[0]):
+                MY_PORT = int(ips[2])
+
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         try:
-            s.bind((host, port))
+            s.bind((host, MY_PORT))
         except socket.error as e:
             print(str(e))
 
-        try:
-            os.chdir(DIR)
-        except:
-            os.mkdir(DIR)
-
-        plist = os.listdir(DIR)
-
-        for i in plist:
-            print i
-
-        if not plist:
-            is_leader = 1
-            leader = port
-            print('I\'m the leader.')
-
-        mySock = sys.argv[1]
-        f = open(mySock, 'w+')
-
         if is_leader == 0:
-            for p in plist:
+            for p in id_port:
                 try:
                     check_leader(p)
                 except:
                     print('connection failed')
 
+        # If no leader found or no other processes is alive, 
+        # then I am the leader
+        if leader == 0:
+            is_leader = 1;
+            leader = MY_ID
+            print('I\'m the leader.')
 
         s.listen(5)
 
         thread_check_leader = threading.Thread(target=check_leader_alive, args=())
         thread_check_leader.daemon = True
         thread_check_leader.start()
-        # wait(1)
-        # if is_leader == 1:
-        #     print('The leader is: {}'.format(leader))
+
+
         while True:
             conn, addr = s.accept()
             new_thread = threading.Thread(target=answer_socket, args=(conn, addr))
@@ -210,12 +218,8 @@ def main():
             new_thread.start()
 
     except KeyboardInterrupt:
-        os.remove(sys.argv[1])
         sys.exit()
 
-    except:
-        print('Remove File')
-        os.remove(sys.argv[1])
 
 if __name__ == "__main__":
     main()  
