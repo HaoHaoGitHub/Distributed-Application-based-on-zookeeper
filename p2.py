@@ -44,6 +44,8 @@ def check_leader(p):
 # if not, start a new election
 def check_leader_alive():
     global holdingElection
+    global id_port
+
     while True:
         time.sleep(randint(5,15))
         if leader != 0 and is_leader == 0 and holdingElection == False:
@@ -63,7 +65,6 @@ def check_leader_alive():
 #--------------------------------------------------------------
 # To initiate election, send ELECTION to all processes with higher IDs         
 def new_election():
-    global port
     global holdingElection
     global is_leader
     global id_port
@@ -100,8 +101,8 @@ def new_election():
 #-------------------------------------------------------------- 
 # send COORDINATOR to all processes with lower IDs     
 def send_coordinator():
-    global port
     global holdingElection
+    global id_port
     print('I am the leader')
 
     for i in id_port:
@@ -150,7 +151,6 @@ def analyze_msg(conn, addr, msg):
         if holdingElection == False:
             new_election()
     elif 'COORDINATOR' in msg:
-        # print(msg)
         msplit = msg.split()
         is_leader = 0
         leader = int(msplit[1])
@@ -166,8 +166,6 @@ def analyze_msg(conn, addr, msg):
 #--------------------------------------------------------------
 def main():
     global is_leader
-    global DIR
-    global port
     global leader
     global MY_NODE_NAME
     global MY_ID
