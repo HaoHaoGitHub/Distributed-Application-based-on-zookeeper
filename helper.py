@@ -167,10 +167,14 @@ def executeOP(operation , FILES):
 		FILES[fileName] = value
 	try:
 		FILES[fileName]
+		return FILES
 	except:
 		"Error: File not found"
+		return FILES
 	if(command == "append"):
 		FILES[fileName] = FILES[fileName] + value
+		return FILES
+
 	if (command == "delete"):
 		try:
 			del FILES[fileName]

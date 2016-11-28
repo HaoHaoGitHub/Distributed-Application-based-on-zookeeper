@@ -27,6 +27,7 @@ def createServerSockets():
 # create thread to listen on cli
 # 	do things, send things on nw
 def listenOnCLI():
+	global FILES
 	while 1:
 		command = raw_input("Enter command \n")
 		fileName = raw_input("Enter File Name \n")
@@ -83,6 +84,7 @@ def listenOnNetwork():
 					operation = TRANSACTION_LIST[tID]
 					FILES = helper.executeOP(operation, FILES)
 					del WAIT_FOR[0]
+
 			if(data["command"] == "synchronise"):
 				print "Entering sync mode"
 				helper.setProgramState("sync")
