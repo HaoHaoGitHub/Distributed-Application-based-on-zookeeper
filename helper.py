@@ -85,14 +85,18 @@ def handleCliDelete(fileName,ServerSocket, sender):
 def sendProposal(newDat, ServerSockets):
 	try:
 		ServerSockets.send(newDat)
+		return " "
 	except:
 		print "counld not send proposal, please try later"
+		newDat = json.loads(newDat)
+		return newDat["transactionID"]
 
 def writeLog(data):
 	file = open("log.txt","a")
 	try:
 		data = json.loads(data)
 	except:
+		print "No new data to write to log"
 		return
 	try:
 		data["originalRequest"]["fileContents"]
@@ -102,6 +106,20 @@ def writeLog(data):
 	file.write(logEntry)
 	file.close()
 
+def writeSyncLog(data):
+	file = open("log.txt","a")
+	try:
+		data = json.loads(data)
+	except:
+		print "No new data to write to log"
+		return
+	try:
+		data["fileContents"]
+	except:
+		data["fileContents"] = ""
+	logEntry = str(data["transactionID"][0]) + "," + str(data["transactionID"][1]) + "," + data["command"] + "," + data["fileName"] + "," + data["fileContents"] + "\n"
+	file.write(logEntry)
+	file.close()
 def replyAck(data,ServerSocket, sender):
 	newData = {}
 	newData["command"] = "ack"
@@ -139,11 +157,10 @@ def sendSync(ServerSockets):
 	data ["command"] = "synchronise"
 	data ["log"] = f
 	data = json.dumps(data)
-	for i in range(1,len(ServerSockets)):
-		try:
-			ServerSockets[i].send(data)
-		except:
-			print "This node not synced"
+	try:
+		ServerSockets.send(data)
+	except:
+		print "One node not synced because it is down"
 
 def executeOP(operation , FILES):
 	logEntry = operation.split(",")
@@ -157,3 +174,13 @@ def executeOP(operation , FILES):
 	if (command == "delete"):
 		del FILES[fileName]
 	return FILES
+def sendFail(ServerSocket, Tid):
+	data = {}
+	data["command"] = "fail"
+	data["transactionID"] = Tid
+	data = json.dumps(data)
+	for i in range(1, len(ServerSocket)):
+		try:
+			ServerSocket[i].send(data)
+		except:
+			print "failed to send failure to a node"

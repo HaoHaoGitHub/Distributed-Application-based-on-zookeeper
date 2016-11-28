@@ -11,7 +11,9 @@ FILES = dict()
 ACK_COUNT = dict()
 WAIT_FOR = []
 TRANSACTION_LIST = dict()
-
+FIRST_SYNC = True
+EPOCH = 0
+FAILED_TRANSACTION = []
 #more helper functions
 def createServerSockets():
 	serversocket = helper_connect.createServer(MY_IP,MY_PORT)
@@ -20,6 +22,7 @@ def createServerSockets():
 		global ServerSockets
 		print "Connection established with node" + str(helper.getID(address[0]))
 		ServerSockets[helper.getID(address[0])] = serversoc
+		helper.sendSync(ServerSockets[helper.getID(address[0])])
 
 # create thread to listen on cli
 # 	do things, send things on nw
@@ -45,9 +48,15 @@ def listenOnNetwork():
 	global FILES
 	global TRANSACTION_LIST
 	global WAIT_FOR
+	global FIRST_SYNC
 	while 1:
-		data = ClientCon.recv(100 * 1024)
-		data = json.loads(data)
+		data = ClientCon.recv(1000 * 1024)
+		try:	
+			data = json.loads(data)
+		except:
+			print "SERVER FAILURE DETECTED please try back later"
+			time.sleep(1)
+			continue
 		if(data["command"] == "proposal"):
 			print "received proposal, sending ack"
 			try:
@@ -56,7 +65,7 @@ def listenOnNetwork():
 				data["originalRequest"]["fileContents"]=""
 			saveCommand = str(data["transactionID"][0]) + "," + str(data["transactionID"][1]) + "," +data["originalRequest"]["command"] + "," + data["originalRequest"]["fileName"] + "," + data["originalRequest"]["fileContents"]
 			TRANSACTION_LIST[str(data["transactionID"][0]) + str(data["transactionID"][1])] = saveCommand
-			helper.writeLog(data)
+			helper.writeLog(json.dumps(data))
 			WAIT_FOR.append(str(data["transactionID"][0]) + str(data["transactionID"][1]))
 			helper.replyAck(data, ClientCon, MY_ID)
 		
@@ -73,38 +82,65 @@ def listenOnNetwork():
 			helper.setProgramState("sync")
 			otherlog = data["log"].split()
 			mylog = open("log.txt").read().split()
+			newEntries = ""
+
+			if(FIRST_SYNC == True):
+				for i in range (0, len(otherlog)):
+					newEntries = newEntries + otherlog[i] + "\n"
+					FILES = helper.executeOP(otherlog[i], FILES)
+					FIRST_SYNC = False
+					helper.setProgramState("ready")
+					print ("Sync successful")
+					continue
 
 			differentLine = 999
 			for i in range(0,len(mylog)):
-				if (mylog[i] != otherlog [j]):
+				if (mylog[i] != otherlog [i]):
 					differentLine = i
 					break
-			newEntries = ""
+			if differentLine == 999:
+				helper.setProgramState("ready")
+				print ("Sync successful")
+				continue
 			for i in range (differentLine, len(otherlog)):
 				newEntries = newEntries + otherlog[i] + "\n"
-				FILES = helper.executeOP(otherlog[i])
-			helper.writeLog(newEntries)
+				FILES = helper.executeOP(otherlog[i], FILES)
+			helper.writeSyncLog(json.dumps(newEntries))
 			helper.setProgramState("ready")
 			print ("Sync successful")
+		if(data["command"] == "fail"):
+			print ("A transaction id " + str(data["transactionID"]) + " has failed. Please try again later")
+			tID = str(data["transactionID"][0]) + str(data["transactionID"][1])
+			WAIT_FOR.remove(tID)
 
 def listenServerOnNetwork(followerID):
 	global ACK_COUNT
+	global EPOCH
+	global FAILED_TRANSACTION
 	while 1:
+		if (len(FAILED_TRANSACTION) != 0):
+			helper.sendFail(ServerSockets,FAILED_TRANSACTION.pop())
 		try:
 			data = ServerSockets[followerID].recv(100 * 1024)
 		except:
 			print "Could not establish connection with " + str(followerID)
+			time.sleep(3)
+			continue
+		try:
+			data = json.loads(data)
+		except:
+			print "Follower CRASH DETECTED Please try again in a while" + str(followerID)
 			time.sleep(1)
 			continue
-		data = json.loads(data)
 		if (data["command"] == "create" or data["command"] == "append" or data["command"] == "delete" or data["command"] == "read"):
 			print "sending sync"
-			helper.sendSync(ServerSockets)
+			sender = data["sender"]
+			helper.sendSync(ServerSockets[sender])
 		if (data["command"] == "create" or data["command"] == "append" or data["command"] == "delete"):
 			print "received request, sending proposal"
 			transaction_number = helper.getTransactionNumber()
 			helper.setTransactionNumber(int(transaction_number)+1)
-			transactionID = [MY_ID,int(transaction_number)+1]
+			transactionID = [EPOCH,int(transaction_number)+1]
 			strTransID = str(transactionID[0]) + str(transactionID[1])
 			ACK_COUNT [strTransID] = 0
 			newData = {}
@@ -114,7 +150,9 @@ def listenServerOnNetwork(followerID):
 			newData["transactionID"] = transactionID
 			newData = json.dumps(newData)
 			for i in range(1,len(ServerSockets)):
-				helper.sendProposal(newData, ServerSockets[i])
+				result = helper.sendProposal(newData, ServerSockets[i])
+				if(result != " "):
+					FAILED_TRANSACTION.append(result)
 	
 		if(data["command"] == "ack"):
 			print "received ack"
@@ -123,9 +161,6 @@ def listenServerOnNetwork(followerID):
 			if(ACK_COUNT[transactionID] >= MAJORITY):
 				print "sending commit"
 				helper.sendCommit(data["transactionID"], ServerSockets)
-
-
-
 
 
 #Update with own log
