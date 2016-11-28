@@ -1,0 +1,4 @@
+1. SYSTEM_STATE = 0 -> election phase
+				1-> recovery mode
+				2 -> synch
+				3 -> ready to take orders
