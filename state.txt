@@ -1,0 +1,6 @@
+election
+0
+
+
+election|sync|recover|ready
+Transaction number
