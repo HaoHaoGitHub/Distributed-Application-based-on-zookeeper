@@ -14,6 +14,7 @@ TRANSACTION_LIST = dict()
 FIRST_SYNC = True
 EPOCH = 0
 FAILED_TRANSACTION = []
+
 #more helper functions
 def createServerSockets():
 	serversocket = helper_connect.createServer(MY_IP,MY_PORT)
@@ -235,7 +236,7 @@ if (LEADER == MY_ID):
 	IP = socket.gethostname()
 if (LEADER == MY_ID):
 	for i in range(0,TOTAL_NODES):
-		thread.start_new_thread(listenServerOnNetwork,(i+1,))
+		thread.start_new_thread(listenServerOnNetwork,(i + 1,))
 
 
 try:
@@ -252,3 +253,5 @@ except:
 	print "Thread start error"
 while 1:
    time.sleep(0.5)
+
+

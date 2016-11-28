@@ -192,6 +192,10 @@ def sendFail(ServerSocket, Tid):
 			ServerSocket[i].send(data)
 		except:
 			print "failed to send failure to a node"
+			# new_election()
+
+
+
 # def finishPendingDelivery(WAIT_FOR):
 # 	global FILES
 # 	f = open("log.txt")
