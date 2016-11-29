@@ -5,7 +5,7 @@ MY_ID = int(raw_input("What is my node name? \n"))
 MY_IP = socket.gethostname()
 LEADER = helper.findLeader()
 TOTAL_NODES = 3
-MAJORITY = 3
+MAJORITY = 2
 ServerSockets = [None] * (TOTAL_NODES+1)
 FILES = dict()
 ACK_COUNT = dict()
@@ -13,16 +13,7 @@ WAIT_FOR = []
 TRANSACTION_LIST = dict()
 FIRST_SYNC = True
 EPOCH = 0
-FAILED_TRANSACTION = []
-
-# ------------------------------ #
-# leader election variables:
-holdingElection = ''
-is_leader = ''
-leader = ''
-id_port = {}              # hashtable that holds {id, port number}
-# ------------------------------ #
-
+PROPOSED_TRANSACTIONS = dict()
 #more helper functions
 def createServerSockets():
 	serversocket = helper_connect.createServer(MY_IP,MY_PORT)
@@ -41,7 +32,7 @@ def listenOnCLI():
 		command = raw_input("Enter command \n")
 		fileName = raw_input("Enter File Name \n")
 		if (helper.getProgramState() != "ready"):
-			print "Service unavailable, please try later"
+			print "Service not in ready state, please try later"
 			continue
 
 		if (command == "read"):
@@ -81,68 +72,65 @@ def listenOnNetwork():
 					data["originalRequest"]["fileContents"]=""
 				saveCommand = str(data["transactionID"][0]) + "," + str(data["transactionID"][1]) + "," +data["originalRequest"]["command"] + "," + data["originalRequest"]["fileName"] + "," + data["originalRequest"]["fileContents"]
 				TRANSACTION_LIST[str(data["transactionID"][0]) + str(data["transactionID"][1])] = saveCommand
-				helper.writeLog(json.dumps(data))
-				WAIT_FOR.append(str(data["transactionID"][0]) + str(data["transactionID"][1]))
+				# helper.writeLog(json.dumps(data))
+				# WAIT_FOR.append(str(data["transactionID"][0]) + str(data["transactionID"][1]))
 				helper.replyAck(data, ClientCon, MY_ID)
 			
 			if(data["command"] == "commit"):
 				print "received commit"
 				tID = str(data["transactionID"][0]) + str(data["transactionID"][1])
-				if(WAIT_FOR[0] == tID):
-					print "deliver tID"
-					operation = TRANSACTION_LIST[tID]
-					FILES = helper.executeOP(operation, FILES)
-					del WAIT_FOR[0]
+				# if(WAIT_FOR[0] == tID):
+				print "deliver tID"
+				operation = TRANSACTION_LIST[tID]
+				FILES = helper.executeOP(operation, FILES)
+				helper.writeLog(operation)
+					# del WAIT_FOR[0]
 
 			if(data["command"] == "synchronise"):
 				print "Entering sync mode"
 				helper.setProgramState("sync")
-				otherlog = data["log"].split()
-				mylog = open("log.txt").read().split()
+				otherlog = ""
+				shouldRead = True
+				try:
+					otherlog = data["log"].split()
+				except:
+					shouldRead = False
 
-				# if(FIRST_SYNC == True):
-				# 	for i in range (0, len(otherlog)):
-				# 		newEntries = newEntries + otherlog[i] + "\n"
-				# 		FILES = helper.executeOP(otherlog[i], FILES)
-				# 		FIRST_SYNC = False
-				# 		helper.setProgramState("ready")
-				# 		print ("Sync successful")
-				# 		continue
-				# print "do i ever reach here?"
-				if(FIRST_SYNC == True):
-					print "ONLY ONCE ONLY ONCE ONLY ONCE"
+				if(FIRST_SYNC == True and shouldRead == True and len(otherlog)>=1):
+					print 
 					helper.eraseOwnLog()
+					print "LENGTH"
+					print len(otherlog) 
 					for line in otherlog:
+						print line
 						FILES = helper.executeOP(line, FILES)
 						helper.writeSyncLog(line)
-					helper.setProgramState("ready")
-					FIRST_SYNC = False
-					print ("Sync successful")
-					continue
-
-
-
-				if(len(mylog) == len(otherlog)):
-					helper.setProgramState("ready")
-					print ("Sync successful")
-				if(len(mylog) < len(otherlog)):
-					for i in range (len(mylog), (len(otherlog) - len(mylog) + 1) ):
-						helper.writeSyncLog(otherlog[i])
-						FILES = helper.executeOP(otherlog[i], FILES)
-						try:
-							WAIT_FOR.remove(str(otherlog[i][0]) + str(otherlog[i][1]))
-						except:
-							pass
-
-				if(len(WAIT_FOR) != 0):
-					for line in mylog:
-						line1 = line.split(",")
-						if (str(line1[0])+str(line1[1]) == WAIT_FOR[0]):
-							print "Sync has delivered a message"
-							FILES = helper.executeOP(line, FILES)
-							del WAIT_FOR[0]
-
 				helper.setProgramState("ready")
+				FIRST_SYNC = False
+				print ("Sync successful")
+
+
+
+				# if(len(mylog) == len(otherlog)):
+				# 	helper.setProgramState("ready")
+				# 	print ("Sync successful")
+				# if(len(mylog) < len(otherlog)):
+				# 	for i in range (len(mylog), (len(otherlog) - len(mylog) + 1) ):
+				# 		helper.writeSyncLog(otherlog[i])
+				# 		FILES = helper.executeOP(otherlog[i], FILES)
+				# 		try:
+				# 			WAIT_FOR.remove(str(otherlog[i][0]) + str(otherlog[i][1]))
+				# 		except:
+				# 			pass
+
+				# if(len(WAIT_FOR) != 0):
+				# 	for line in mylog:
+				# 		line1 = line.split(",")
+				# 		if (str(line1[0])+str(line1[1]) == WAIT_FOR[0]):
+				# 			print "Sync has delivered a message"
+				# 			FILES = helper.executeOP(line, FILES)
+				# 			del WAIT_FOR[0]
+
 
 
 				# differentLine = 999
@@ -155,63 +143,30 @@ def listenOnNetwork():
 				# for i in range (differentLine, len(otherlog)):
 				# 	FILES = helper.executeOP(otherlog[i], FILES)
 				# 	helper.writeSyncLog(json.dumps(otherlog[i]))
-				helper.setProgramState("ready")
-				print ("Sync successful")
+				# helper.setProgramState("ready")
+				# print ("Sync successful")
 
 
 			if(data["command"] == "fail"):
 				print ("A transaction id " + str(data["transactionID"]) + " has failed. Please try again later")
 				tID = str(data["transactionID"][0]) + str(data["transactionID"][1])
 				# WAIT_FOR.remove(tID)	
-			# leader election part:
-			# ---------------------------------------------------------------- #
-			if (data["command"] == "try"):
-				if is_leader == 1:
-					print ('alive')
-					ClientCon.send('alive')
-			if (data["command"] == "alive"):
-				print('leader is alive')
-			if 'Are you the leader?' in data["command"]:
-				msplit = data["command"].split()
-				asker = msplit[1]
-				if is_leader == 1:
-					if asker > MY_ID and holdingElection == False:
-						is_leader = 0
-						leader = asker
-						new_election()
-						ClientCon.send('You are bigger than me')
-					else:
-						ClientCon.send('Yes')
-				else:
-					ClientCon.send('No'.encode)
-			if (data["command"] == "election"):
-				ClientCon.send('OK')
-				if holdingElection == False:
-					new_election()
-			if 'COORDINATOR' in data["command"]:
-				msplit = data["command"].split()
-				is_leader = 0
-				leader = int(msplit[1])
-				print 'The leader is ', leader
-				if MY_ID > leader and holdingElection == False:
-					new_election()
-				else:
-					holdingElection = False
-			else:
-				pass
-			# ---------------------------------------------------------------- #
-
-def timerThread():
-	global FAILED_TRANSACTION
+def serverTimerThread():
+	global PROPOSED_TRANSACTIONS
 	global ServerSockets
-	time.sleep(5)
-	if (len(FAILED_TRANSACTION) != 0):
-		helper.sendFail(ServerSockets, FAILED_TRANSACTION.pop())
+	
+	while 1:
+		for transactionID,transactionTime in PROPOSED_TRANSACTIONS.iteritems():
+			if (int(time.time()) - transactionTime > 5):
+				helper.sendFail(ServerSockets,transactionID)
+				del PROPOSED_TRANSACTIONS[transactionID]
+		time.sleep(3)
 def listenServerOnNetwork(followerID):
 	global ACK_COUNT
 	global EPOCH
-	global FAILED_TRANSACTION
+	global PROPOSED_TRANSACTIONS
 	global WAIT_FOR
+	global ServerSockets
 	while 1:
 		
 		try:
@@ -220,12 +175,10 @@ def listenServerOnNetwork(followerID):
 			print "Could not establish connection with " + str(followerID)
 			time.sleep(1)
 			continue
-		# if(len(FAILED_TRANSACTION) != 0):
-		# 		helper.sendFail(ServerSockets,FAILED_TRANSACTION.pop())
 		try:
 			mydata = data.split("|")
 		except:
-			print "Follower CRASH DETECTED Please try again in a while" + str(followerID)
+			print "Incomplete message received" + str(followerID)
 			time.sleep(1)
 			continue
 		for data in mydata:
@@ -233,12 +186,6 @@ def listenServerOnNetwork(followerID):
 				data = json.loads(data)
 			except:
 				continue
-			if (data["command"] == "create" or data["command"] == "append" or data["command"] == "delete" or data["command"] == "read"):
-				print "sending sync"
-				sender = data["sender"]
-				helper.sendSync(ServerSockets[LEADER])
-				if(sender != LEADER):
-					helper.sendSync(ServerSockets[sender])
 			if (data["command"] == "create" or data["command"] == "append" or data["command"] == "delete"):
 				print "received request, sending proposal"
 				transaction_number = helper.getTransactionNumber()
@@ -256,185 +203,18 @@ def listenServerOnNetwork(followerID):
 				for i in range(1,len(ServerSockets)):
 					result = helper.sendProposal(newData, ServerSockets[i])
 					result = result.split(",")
-					if(result[1] not in FAILED_TRANSACTION):
-						FAILED_TRANSACTION.append(result[1])
-				thread.start_new_thread(timerThread,())
+					if(result[1] not in PROPOSED_TRANSACTIONS):
+						PROPOSED_TRANSACTIONS[result[1]] = int(time.time())
 		
 			if(data["command"] == "ack"):
 				print "received ack"
 				transactionID = str(data["transactionID"][0]) + str(data["transactionID"][1])
 				ACK_COUNT[transactionID]+=1
-				if(ACK_COUNT[transactionID] >= MAJORITY):
+				if(ACK_COUNT[transactionID] >= MAJORITY and (transactionID in PROPOSED_TRANSACTIONS)):
 					print "sending commit"
+					del PROPOSED_TRANSACTIONS[transactionID] 
 					helper.sendCommit(data["transactionID"], ServerSockets)
-					FAILED_TRANSACTION.pop()
-		    # leader election part:
-			# ---------------------------------------------------------------- #
-			if (data["command"] == "try"):
-				if is_leader == 1:
-					print ('alive')
-					ServerSockets[followerID].send('alive')
-			if (data["command"] == "alive"):
-				print('leader is alive')
-			if 'Are you the leader?' in data["command"]:
-				msplit = data["command"].split()
-				asker = msplit[1]
-				if is_leader == 1:
-					if asker > MY_ID and holdingElection == False:
-						is_leader = 0
-						leader = asker
-						new_election()
-						ServerSockets[followerID].send('You are bigger than me')
-					else:
-						ServerSockets[followerID].send('Yes')
-				else:
-					ServerSockets[followerID].send('No'.encode)
-			if (data["command"] == "election"):
-				ServerSockets[followerID].send('OK')
-				if holdingElection == False:
-					new_election()
-			if 'COORDINATOR' in data["command"]:
-				msplit = data["command"].split()
-				is_leader = 0
-				leader = int(msplit[1])
-				print 'The leader is ', leader
-				if MY_ID > leader and holdingElection == False:
-					new_election()
-				else:
-					holdingElection = False
-			else:
-				pass
-			# ---------------------------------------------------------------- #
 
-# New election part:
-# =====================================================================================
-def new_election():
-	global holdingElection
-	global is_leader
-	global id_port
-
-	holdingElection = True
-
-	candidates = []
-
-	for i in id_port:
-		if i > MY_ID:
-			candidates.append(i)
-
-	NO_RESPONSE = True
-
-	for c in candidates:
-			ServerSockets[c].send('ELECTION')
-			msg = ServerSockets[c].recv(2048)
-			if msg == 'OK':
-				print('OK received')
-				NO_RESPONSE = False
-
-	if NO_RESPONSE == True:
-		is_leader = 1
-		leader = MY_ID
-		holdingElection = False
-		# if no response received, send COORDINATOR to all processes with lower IDs
-		send_coordinator()
-
-#-------------------------------------------------------------- 
-# send COORDINATOR to all processes with lower IDs     
-def send_coordinator():
-    global holdingElection
-    global id_port
-    print('I am the leader')
-
-    for i in id_port:
-        if i < MY_ID:
-            ServerSockets[i].send('COORDINATOR {}'.format(MY_ID))
-#--------------------------------------------------------------
-# function used for checking whether there is existing leader 
-# in all processes, if the current process is larger than the exiting
-# leader, initiate a new election
-# parameter: pair {id, port number}
-def check_leader(p):
-    global leader
-    tmp_id = p
-    tmp_port = id_port[p]
-
-    ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ns.settimeout(1)
-    try:
-        ns.connect((host, tmp_port))
-        ns.send('Are you the leader? {}'.format(MY_ID))
-        msg = ns.recv(2048)
-        if msg == 'YES':
-            leader = tmp_id
-        elif msg == 'You are bigger than me':
-            leader = MY_ID
-        ns.close()
-    except:
-        print('Could not connect to the process')
-#--------------------------------------------------------------
-# function check whether the current leader is alive
-# if not, start a new election
-def check_leader_alive():
-    global holdingElection
-    global id_port
-
-    while True:
-        time.sleep(randint(5,15))
-        if leader != 0 and is_leader == 0 and holdingElection == False:
-            ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ns.settimeout(2)
-            try:
-                ns.connect((host, id_port[leader]))
-                ns.send('try')
-                print('try')
-                print(datetime.now())
-                msg = ns.recv(2048)
-                analyze_msg(None,None,msg=msg)
-                ns.close()
-            except socket.error as e:
-                print('Did not find the leader, starting a new election...')
-                new_election()
-#--------------------------------------------------------------
-
-def get_leader():
-	global is_leader
-	global leader
-	global MY_ID
-	global id_port
-
-	f = open("ips.txt")
-
-	for ips in f:
-		ips = ips.split()
-		id_port[int(ips[0])] = int(ips[2])
-		if MY_ID == int(ips[0]):
-			MY_PORT = int(ips[2])
-	s = ServerSockets[MY_ID]
-
-	if is_leader == 0:
-		for p in id_port:
-			try:
-				check_leader(p)
-			except:
-				print('connection failed')
-
-	# if no leader found or no other processes is alive
-	# then I am the leader
-	if leader == 0:
-		is_leader = 1
-		leader = MY_ID
-		print('I\'m the leader')
-	s.listen(5)
-
-	thread_check_leader = threading.Thread(target=check_leader_alive, args=())
-	thread_check_leader.daemon = True
-	thread_check_leader.start()
-
-	#while True:
-
-		# I don't know how to write this part
-
-# ===================================================================================== 
-# End of new election part
 
 #Update with own log
 
@@ -448,7 +228,9 @@ if (LEADER == MY_ID):
 	IP = socket.gethostname()
 if (LEADER == MY_ID):
 	for i in range(0,TOTAL_NODES):
-		thread.start_new_thread(listenServerOnNetwork,(i + 1,))
+		thread.start_new_thread(listenServerOnNetwork,(i+1,))
+		thread.start_new_thread(serverTimerThread,())
+
 
 
 try:
@@ -461,9 +243,8 @@ helper.setProgramState("ready")
 try:
 	thread.start_new_thread(listenOnCLI, ())
 	thread.start_new_thread(listenOnNetwork, ())
+
 except:
 	print "Thread start error"
 while 1:
    time.sleep(0.5)
-
-

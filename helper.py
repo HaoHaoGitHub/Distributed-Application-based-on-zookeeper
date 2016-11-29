@@ -50,7 +50,10 @@ def handleCliRead(fileName, FILES,ServerSocket, sender):
 	data["sender"] = sender
 	data = json.dumps(data)
 	data = data + "|"
-	ServerSocket.send(data)
+	try:
+		ServerSocket.send(data)
+	except:
+		print "Server DEAD"
 	try:
 		return FILES[fileName]
 	except:
@@ -78,7 +81,10 @@ def handleCliAppend(fileName,fileContents, ServerSocket, sender):
 	data["fileContents"] = fileContents
 	data = json.dumps(data)
 	data = data + "|"
-	ServerSocket.send(data)
+	try:
+		ServerSocket.send(data)
+	except:
+		print "SERVER DEAD"
 
 def handleCliDelete(fileName,ServerSocket, sender):
 	data = {}
@@ -87,35 +93,43 @@ def handleCliDelete(fileName,ServerSocket, sender):
 	data["fileName"] = fileName
 	data = json.dumps(data)
 	data = data + "|"
-	ServerSocket.send(data)
+	try:
+		ServerSocket.send(data)
+	except:
+		print "SERVER DEAD"
 
 
 
 def sendProposal(newDat, ServerSockets):
+
+	newDat = newDat.split("|")
+	newDat = json.loads(newDat[0])
 	try:
-		ServerSockets.send(newDat)
-		newDat = newDat.split("|")
-		newDat = json.loads(newDat[0])
-		return "success,"+ str(newDat["transactionID"])
+		ServerSockets.send(json.dumps(newDat))
 	except:
-		print "counld not send proposal, please try later"
-		newDat = newDat.split("|")
-		newDat = json.loads(newDat[0])
-		return "failed," + str(newDat["transactionID"])
+		pass
+	# try:
+	# 	ServerSockets.send(newDat)
+	# except:
+	# 	print "could not send proposal"
+	# 	return "failed," + str(newDat["transactionID"][0]) + str(newDat["transactionID"][1])
+	return "success,"+ str(newDat["transactionID"][0]) + str(newDat["transactionID"][1])
+
+
 
 def writeLog(data):
 	file = open("log.txt","a")
-	try:
-		data = json.loads(data)
-	except:
-		print "No new data to write to log"
-		return
-	try:
-		data["originalRequest"]["fileContents"]
-	except:
-		data["originalRequest"]["fileContents"] = ""
-	logEntry = str(data["transactionID"][0]) + "," + str(data["transactionID"][1]) + "," + data["originalRequest"]["command"] + "," + data["originalRequest"]["fileName"] + "," + data["originalRequest"]["fileContents"] + "\n"
-	file.write(logEntry)
+	# try:
+	# 	data = json.loads(data)
+	# except:
+	# 	print "No new data to write to log"
+	# 	return
+	# try:
+	# 	logEntry = str(data[0]) + "," + str(data[1]) + "," + data[2] + "," + data[3] + "," + data[4] + "\n"
+	# except:
+	# 	logEntry = str(data[0]) + "," + str(data[1]) + "," + data[2] + "," + data[3] + "," + "\n"
+	data = data + "\n"
+	file.write(data)
 	file.close()
 def eraseOwnLog():
 	file = open("log.txt","w").close()
@@ -131,7 +145,10 @@ def replyAck(data,ServerSocket, sender):
 	newData["transactionID"] = data["transactionID"]
 	newData = json.dumps(newData)
 	newData = newData + "|"
-	ServerSocket.send(newData)
+	try:
+		ServerSocket.send(newData)
+	except:
+		print "SERVER DEAD"
 
 def sendCommit(tID, ServerSockets):
 	data = {}
@@ -162,15 +179,22 @@ def executeOP(operation , FILES):
 	logEntry = operation.split(",")
 	command = logEntry[2]
 	fileName = logEntry[3]
-	value = logEntry[4]
+	value = ""
+	try:
+		value = logEntry[4]
+	except:
+		pass
+
 	if (command == "create"):
 		FILES[fileName] = value
+		return FILES
+
 	try:
 		FILES[fileName]
-		return FILES
 	except:
 		"Error: File not found"
 		return FILES
+
 	if(command == "append"):
 		FILES[fileName] = FILES[fileName] + value
 		return FILES
@@ -181,6 +205,7 @@ def executeOP(operation , FILES):
 		except:
 			print "FILE does not exist"
 		return FILES
+
 def sendFail(ServerSocket, Tid):
 	data = {}
 	data["command"] = "fail"
@@ -192,10 +217,6 @@ def sendFail(ServerSocket, Tid):
 			ServerSocket[i].send(data)
 		except:
 			print "failed to send failure to a node"
-			# new_election()
-
-
-
 # def finishPendingDelivery(WAIT_FOR):
 # 	global FILES
 # 	f = open("log.txt")
