@@ -15,6 +15,14 @@ FIRST_SYNC = True
 EPOCH = 0
 FAILED_TRANSACTION = []
 
+# ------------------------------ #
+# leader election variables:
+holdingElection = ''
+is_leader = ''
+leader = ''
+id_port = {}              # hashtable that holds {id, port number}
+# ------------------------------ #
+
 #more helper functions
 def createServerSockets():
 	serversocket = helper_connect.createServer(MY_IP,MY_PORT)
@@ -155,6 +163,44 @@ def listenOnNetwork():
 				print ("A transaction id " + str(data["transactionID"]) + " has failed. Please try again later")
 				tID = str(data["transactionID"][0]) + str(data["transactionID"][1])
 				# WAIT_FOR.remove(tID)	
+			# leader election part:
+			# ---------------------------------------------------------------- #
+			if (data["command"] == "try"):
+				if is_leader == 1:
+					print ('alive')
+					ClientCon.send('alive')
+			if (data["command"] == "alive"):
+				print('leader is alive')
+			if 'Are you the leader?' in data["command"]:
+				msplit = data["command"].split()
+				asker = msplit[1]
+				if is_leader == 1:
+					if asker > MY_ID and holdingElection == False:
+						is_leader = 0
+						leader = asker
+						new_election()
+						ClientCon.send('You are bigger than me')
+					else:
+						ClientCon.send('Yes')
+				else:
+					ClientCon.send('No'.encode)
+			if (data["command"] == "election"):
+				ClientCon.send('OK')
+				if holdingElection == False:
+					new_election()
+			if 'COORDINATOR' in data["command"]:
+				msplit = data["command"].split()
+				is_leader = 0
+				leader = int(msplit[1])
+				print 'The leader is ', leader
+				if MY_ID > leader and holdingElection == False:
+					new_election()
+				else:
+					holdingElection = False
+			else:
+				pass
+			# ---------------------------------------------------------------- #
+
 def timerThread():
 	global FAILED_TRANSACTION
 	global ServerSockets
@@ -222,7 +268,173 @@ def listenServerOnNetwork(followerID):
 					print "sending commit"
 					helper.sendCommit(data["transactionID"], ServerSockets)
 					FAILED_TRANSACTION.pop()
+		    # leader election part:
+			# ---------------------------------------------------------------- #
+			if (data["command"] == "try"):
+				if is_leader == 1:
+					print ('alive')
+					ServerSockets[followerID].send('alive')
+			if (data["command"] == "alive"):
+				print('leader is alive')
+			if 'Are you the leader?' in data["command"]:
+				msplit = data["command"].split()
+				asker = msplit[1]
+				if is_leader == 1:
+					if asker > MY_ID and holdingElection == False:
+						is_leader = 0
+						leader = asker
+						new_election()
+						ServerSockets[followerID].send('You are bigger than me')
+					else:
+						ServerSockets[followerID].send('Yes')
+				else:
+					ServerSockets[followerID].send('No'.encode)
+			if (data["command"] == "election"):
+				ServerSockets[followerID].send('OK')
+				if holdingElection == False:
+					new_election()
+			if 'COORDINATOR' in data["command"]:
+				msplit = data["command"].split()
+				is_leader = 0
+				leader = int(msplit[1])
+				print 'The leader is ', leader
+				if MY_ID > leader and holdingElection == False:
+					new_election()
+				else:
+					holdingElection = False
+			else:
+				pass
+			# ---------------------------------------------------------------- #
 
+# New election part:
+# =====================================================================================
+def new_election():
+	global holdingElection
+	global is_leader
+	global id_port
+
+	holdingElection = True
+
+	candidates = []
+
+	for i in id_port:
+		if i > MY_ID:
+			candidates.append(i)
+
+	NO_RESPONSE = True
+
+	for c in candidates:
+			ServerSockets[c].send('ELECTION')
+			msg = ServerSockets[c].recv(2048)
+			if msg == 'OK':
+				print('OK received')
+				NO_RESPONSE = False
+
+	if NO_RESPONSE == True:
+		is_leader = 1
+		leader = MY_ID
+		holdingElection = False
+		# if no response received, send COORDINATOR to all processes with lower IDs
+		send_coordinator()
+
+#-------------------------------------------------------------- 
+# send COORDINATOR to all processes with lower IDs     
+def send_coordinator():
+    global holdingElection
+    global id_port
+    print('I am the leader')
+
+    for i in id_port:
+        if i < MY_ID:
+            ServerSockets[i].send('COORDINATOR {}'.format(MY_ID))
+#--------------------------------------------------------------
+# function used for checking whether there is existing leader 
+# in all processes, if the current process is larger than the exiting
+# leader, initiate a new election
+# parameter: pair {id, port number}
+def check_leader(p):
+    global leader
+    tmp_id = p
+    tmp_port = id_port[p]
+
+    ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ns.settimeout(1)
+    try:
+        ns.connect((host, tmp_port))
+        ns.send('Are you the leader? {}'.format(MY_ID))
+        msg = ns.recv(2048)
+        if msg == 'YES':
+            leader = tmp_id
+        elif msg == 'You are bigger than me':
+            leader = MY_ID
+        ns.close()
+    except:
+        print('Could not connect to the process')
+#--------------------------------------------------------------
+# function check whether the current leader is alive
+# if not, start a new election
+def check_leader_alive():
+    global holdingElection
+    global id_port
+
+    while True:
+        time.sleep(randint(5,15))
+        if leader != 0 and is_leader == 0 and holdingElection == False:
+            ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            ns.settimeout(2)
+            try:
+                ns.connect((host, id_port[leader]))
+                ns.send('try')
+                print('try')
+                print(datetime.now())
+                msg = ns.recv(2048)
+                analyze_msg(None,None,msg=msg)
+                ns.close()
+            except socket.error as e:
+                print('Did not find the leader, starting a new election...')
+                new_election()
+#--------------------------------------------------------------
+
+def get_leader():
+	global is_leader
+	global leader
+	global MY_ID
+	global id_port
+
+	f = open("ips.txt")
+
+	for ips in f:
+		ips = ips.split()
+		id_port[int(ips[0])] = int(ips[2])
+		if MY_ID == int(ips[0]):
+			MY_PORT = int(ips[2])
+	s = ServerSockets[MY_ID]
+
+	if is_leader == 0:
+		for p in id_port:
+			try:
+				check_leader(p)
+			except:
+				print('connection failed')
+
+	# if no leader found or no other processes is alive
+	# then I am the leader
+	if leader == 0:
+		is_leader = 1
+		leader = MY_ID
+		print('I\'m the leader')
+	s.listen(5)
+
+	thread_check_leader = threading.Thread(target=check_leader_alive, args=())
+	thread_check_leader.daemon = True
+	thread_check_leader.start()
+
+	#while True:
+
+		# I don't know how to write this part
+
+# ===================================================================================== 
+# End of new election part
 
 #Update with own log
 
