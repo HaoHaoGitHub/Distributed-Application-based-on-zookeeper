@@ -4,9 +4,9 @@ MY_ID = int(raw_input("What is my node name? \n"))
 (MY_IP,MY_PORT) = helper.getIPandPort(MY_ID)
 MY_IP = socket.gethostname()
 LEADER = helper.findLeader()
-TOTAL_NODES = 3
-MAJORITY = 2
-ServerSockets = [None] * (TOTAL_NODES+1)
+TOTAL_NODES = 5
+MAJORITY = 3
+ServerSockets = []
 FILES = dict()
 ACK_COUNT = dict()
 WAIT_FOR = []
@@ -14,42 +14,64 @@ TRANSACTION_LIST = dict()
 FIRST_SYNC = True
 EPOCH = 0
 PROPOSED_TRANSACTIONS = dict()
+CONNECTED_CLIENTS = []
 #more helper functions
 def createServerSockets():
 	serversocket = helper_connect.createServer(MY_IP,MY_PORT)
 	while 1:
 		(serversoc, address) = serversocket.accept()
 		global ServerSockets
-		print "Connection established with node" + str(helper.getID(address[0]))
-		ServerSockets[helper.getID(address[0])] = serversoc
-		helper.sendSync(ServerSockets[helper.getID(address[0])])
+		print "Connection established with node" 
+		ServerSockets.append(serversoc)
+		thread.start_new_thread(listenServerOnNetwork,(serversoc,))
+		helper.sendSync(serversoc)
 
 # create thread to listen on cli
 # 	do things, send things on nw
-def listenOnCLI():
-	global FILES
+def clientRecvThread(sock):
 	while 1:
-		command = raw_input("Enter command \n")
-		fileName = raw_input("Enter File Name \n")
-		if (helper.getProgramState() != "ready"):
-			print "Service not in ready state, please try later"
-			continue
+		clientData = sock.recv(512)
+		response = listenOnCLI(clientData)
+		try:
+			sock.send(response)
+		except:
+			sock.send("working")
+def clientAcceptThread():
+	serversocket = helper_connect.createServer(socket.gethostname(), 8082)
+	while 1:
+		(serversoc,address) = serversocket.accept()
+		global CONNECTED_CLIENTS
+		print "Connected to client"
+		CONNECTED_CLIENTS.append(serversoc)
+		thread.start_new_thread(clientRecvThread,(serversoc,))
 
-		if (command == "read"):
-			print helper.handleCliRead(fileName, FILES, ClientCon, MY_ID)
-		if (command == "create"):
-			contents = raw_input("Enter content \n")
-			helper.handleCliCreate(fileName, contents, ClientCon, MY_ID)
-		if (command == "append"):
-			contents = raw_input("Enter content \n")
-			helper.handleCliAppend(fileName, contents, ClientCon, MY_ID)
-		if (command == "delete"):
-			helper.handleCliDelete(fileName,ClientCon, MY_ID)
+
+def listenOnCLI(clientData):
+	global FILES
+	global ClientCon
+	clientData = clientData.split(",")
+	command = clientData[0]
+	fileName = clientData[1]
+	if (helper.getProgramState() != "ready"):
+		return "Service not in ready state, please try later"
+
+	if (command == "read"):
+		return helper.handleCliRead(fileName, FILES, ClientCon, MY_ID)
+	if (command == "create"):
+		contents = clientData[2]
+		helper.handleCliCreate(fileName, contents, ClientCon, MY_ID)
+	if (command == "append"):
+		contents = clientData[2]
+		helper.handleCliAppend(fileName, contents, ClientCon, MY_ID)
+	if (command == "delete"):
+		helper.handleCliDelete(fileName,ClientCon, MY_ID)
 def listenOnNetwork():
 	global FILES
 	global TRANSACTION_LIST
 	global WAIT_FOR
 	global FIRST_SYNC
+	global CONNECTED_CLIENTS
+	global ClientCon
 	while 1:
 		mydata = ClientCon.recv(10*1024)
 		mydata = mydata.split("|")
@@ -84,6 +106,7 @@ def listenOnNetwork():
 				operation = TRANSACTION_LIST[tID]
 				FILES = helper.executeOP(operation, FILES)
 				helper.writeLog(operation)
+				helper.announceCommit(CONNECTED_CLIENTS, TRANSACTION_LIST[tID])
 					# del WAIT_FOR[0]
 
 			if(data["command"] == "synchronise"):
@@ -109,47 +132,10 @@ def listenOnNetwork():
 				FIRST_SYNC = False
 				print ("Sync successful")
 
-
-
-				# if(len(mylog) == len(otherlog)):
-				# 	helper.setProgramState("ready")
-				# 	print ("Sync successful")
-				# if(len(mylog) < len(otherlog)):
-				# 	for i in range (len(mylog), (len(otherlog) - len(mylog) + 1) ):
-				# 		helper.writeSyncLog(otherlog[i])
-				# 		FILES = helper.executeOP(otherlog[i], FILES)
-				# 		try:
-				# 			WAIT_FOR.remove(str(otherlog[i][0]) + str(otherlog[i][1]))
-				# 		except:
-				# 			pass
-
-				# if(len(WAIT_FOR) != 0):
-				# 	for line in mylog:
-				# 		line1 = line.split(",")
-				# 		if (str(line1[0])+str(line1[1]) == WAIT_FOR[0]):
-				# 			print "Sync has delivered a message"
-				# 			FILES = helper.executeOP(line, FILES)
-				# 			del WAIT_FOR[0]
-
-
-
-				# differentLine = 999
-				# for i in range(0,len(mylog)):
-				# 	if (mylog[i] != otherlog [i]):
-				# 		differentLine = i
-				# 		break
-				# if(differentLine == 999 and le):
-				# 	continue
-				# for i in range (differentLine, len(otherlog)):
-				# 	FILES = helper.executeOP(otherlog[i], FILES)
-				# 	helper.writeSyncLog(json.dumps(otherlog[i]))
-				# helper.setProgramState("ready")
-				# print ("Sync successful")
-
-
 			if(data["command"] == "fail"):
 				print ("A transaction id " + str(data["transactionID"]) + " has failed. Please try again later")
 				tID = str(data["transactionID"][0]) + str(data["transactionID"][1])
+				helper.announceFailure(CONNECTED_CLIENTS, TRANSACTION_LIST[tID])
 				# WAIT_FOR.remove(tID)	
 def serverTimerThread():
 	global PROPOSED_TRANSACTIONS
@@ -161,7 +147,7 @@ def serverTimerThread():
 				helper.sendFail(ServerSockets,transactionID)
 				del PROPOSED_TRANSACTIONS[transactionID]
 		time.sleep(3)
-def listenServerOnNetwork(followerID):
+def listenServerOnNetwork(conObj):
 	global ACK_COUNT
 	global EPOCH
 	global PROPOSED_TRANSACTIONS
@@ -170,15 +156,15 @@ def listenServerOnNetwork(followerID):
 	while 1:
 		
 		try:
-			data = ServerSockets[followerID].recv(10*1024)
+			data = conObj.recv(10*1024)
 		except:
-			print "Could not establish connection with " + str(followerID)
+			print "Could not establish connection server " 
 			time.sleep(1)
 			continue
 		try:
 			mydata = data.split("|")
 		except:
-			print "Incomplete message received" + str(followerID)
+			print "Incomplete message received" 
 			time.sleep(1)
 			continue
 		for data in mydata:
@@ -200,7 +186,8 @@ def listenServerOnNetwork(followerID):
 				newData["transactionID"] = transactionID
 				newData = json.dumps(newData)
 				newData = newData + "|"
-				for i in range(1,len(ServerSockets)):
+				print "sending proposals"
+				for i in range(0,len(ServerSockets)):
 					result = helper.sendProposal(newData, ServerSockets[i])
 					result = result.split(",")
 					if(result[1] not in PROPOSED_TRANSACTIONS):
@@ -227,21 +214,21 @@ if (LEADER == MY_ID):
 if (LEADER == MY_ID):
 	IP = socket.gethostname()
 if (LEADER == MY_ID):
-	for i in range(0,TOTAL_NODES):
-		thread.start_new_thread(listenServerOnNetwork,(i+1,))
-		thread.start_new_thread(serverTimerThread,())
+	# for i in range(0,TOTAL_NODES):
+	# 	thread.start_new_thread(listenServerOnNetwork,(i+1,))
+	thread.start_new_thread(serverTimerThread,())
 
-
+thread.start_new_thread(clientAcceptThread,())
 
 try:
 	ClientCon = helper_connect.connectTo(IP,PORT)
+	print "created client con"
 except:
 	print "Could not connect to server"
 helper.setProgramState("ready")
 
 
 try:
-	thread.start_new_thread(listenOnCLI, ())
 	thread.start_new_thread(listenOnNetwork, ())
 
 except:

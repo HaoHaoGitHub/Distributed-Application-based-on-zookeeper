@@ -1,4 +1,14 @@
 import json
+def announceCommit(clients,tid):
+	msg = "SUCCESS :" + tid
+	for i in range (0,len(clients)):
+		clients[i].send(msg)
+
+def announceFailure(clients,tid):
+	msg = "FAILURE :" + tid
+	for i in range(0,len(clients)):
+		clients[i].send(msg)
+
 def getIPandPort(nodeid):
 	file = open("IPS.txt")
 	for line in file:
@@ -15,7 +25,7 @@ def getID(ip):
 
 def findLeader():
 	#hold leader election
-	return 3 #change to leader ID
+	return 5 #change to leader ID
 def setProgramState(state):
 	file = open("state.txt")
 	line = file.readlines()
@@ -66,7 +76,11 @@ def handleCliCreate(fileName,fileContents, ServerSocket, sender):
 	data["fileContents"] = fileContents
 	data = json.dumps(data)
 	data = data + "|"
-	ServerSocket.send(data)
+	print "sending to leader"
+	try:
+		ServerSocket.send(data)
+	except:
+		print "server dead"
 
 def handleCliAppend(fileName,fileContents, ServerSocket, sender):
 	# try:
@@ -81,6 +95,7 @@ def handleCliAppend(fileName,fileContents, ServerSocket, sender):
 	data["fileContents"] = fileContents
 	data = json.dumps(data)
 	data = data + "|"
+	print "sending to leader"
 	try:
 		ServerSocket.send(data)
 	except:
@@ -93,6 +108,7 @@ def handleCliDelete(fileName,ServerSocket, sender):
 	data["fileName"] = fileName
 	data = json.dumps(data)
 	data = data + "|"
+	print "sending to leader"
 	try:
 		ServerSocket.send(data)
 	except:
@@ -156,7 +172,7 @@ def sendCommit(tID, ServerSockets):
 	data["command"] = "commit"
 	data = json.dumps(data)
 	data = data + "|"
-	for i in range(1,len(ServerSockets)):
+	for i in range(0,len(ServerSockets)):
 		try:
 			ServerSockets[i].send(data)
 		except:
@@ -212,7 +228,7 @@ def sendFail(ServerSocket, Tid):
 	data["transactionID"] = Tid
 	data = json.dumps(data)
 	data = data + "|"
-	for i in range(1, len(ServerSocket)):
+	for i in range(0, len(ServerSocket)):
 		try:
 			ServerSocket[i].send(data)
 		except:
